@@ -5,7 +5,7 @@
 В папке Example пример ввода ПО "Web-фреймворки".
 
 Клиентский интерфейс:
-(https://github.com/Ravis-Nikas/ES/blob/master/img/gui.png)
+![GUI](https://raw.github.com/Ravis-Nikas/ES/master/img/gui.png)
 
 Визуализация одного критерия в базе:
-(https://github.com/Ravis-Nikas/ES/blob/master/img/vis1.png)
+![VIS1](https://raw.github.com/Ravis-Nikas/ES/master/img/vis1.png)
