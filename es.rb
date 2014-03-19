@@ -1,3 +1,25 @@
+# The MIT License (MIT)
+# 
+# Copyright (c) 2014 Anisimov Nikita <ravis.bmstu(at)gmail.com>
+# 
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+# 
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 require "singleton"
 require "./RESTWrap.rb"
 
@@ -39,7 +61,7 @@ class Model
     # Now choose question
     picked = false
     @esState[:questions].each do |q, data|
-      if @esState[:criteria][q] == nil
+      if @esState[:criteria][q][:variant] == nil
         # Take this question
         callOnQuestion data
         @criterionInWork = q
@@ -57,7 +79,7 @@ class Model
   def pickNextQuestion
     picked = false
     @esState[:questions].each do |q, data|
-      if @esState[:criteria][q] == nil
+      if @esState[:criteria][q][:variant] == nil
         # Take this question
         callOnQuestion data
         @criterionInWork = q
@@ -81,18 +103,20 @@ class Model
               return subject.title as ST;"
     res = NeoREST.performCypherQuery(cypher)
     found = res['data']
-    info "Found: #{found}"
-    if @esState[:results].empty?
-      # Means no results yet
-      # Add all we got now
-      found.each { |result| @esState[:results] << result[0] }
-    else
-      # Save only intersection of 2 arrays
-      # Have to refactor returned array, because each damn string is in additional array, have to uncover it
-      reStruct = [] 
-      found.each { |result| reStruct << result[0] }
-      @esState[:results] = reStruct & @esState[:results]
+    @esState[:criteria][criterion][:res].clear
+    found.each { |result| @esState[:criteria][criterion][:res] << result[0] }
+    info "Res for criterion: #{@esState[:criteria][criterion][:res]}"
+    # Form @esState[:results]
+    @esState[:results].clear
+    @esState[:criteria].each do |criterion, data|
+      res = data[:res]
+      if @esState[:results].empty?
+        @esState[:results] = @esState[:results] | res
+      else
+        @esState[:results] = @esState[:results] & res if !res.empty?
+      end
     end
+    # 
     callOnResult
     # If there is 2 or less results then finish this bullshit!
     callOnFinish if @esState[:results].count <= 2
@@ -128,7 +152,7 @@ class Model
     res = NeoREST.performCypherQuery(cypher)
     found = res['data']
     found.each do |criterion|
-      @esState[:criteria][criterion[0]] = nil
+      @esState[:criteria][criterion[0]] = { variant: nil, res: [] }
     end
     # Calling observers
     callOnCriteria
@@ -145,14 +169,14 @@ class Model
     if !found
       cypher = "start root=node(0)
                 match (root)-[:coherence]-(criterion)-[:chain]-()-[:answ_as]-()-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
-                where question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
+                where question.type = 'Question' and question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
                 return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
       res = NeoREST.performCypherQuery(cypher)
       found = res['data'][0]
     end
     if found[1] == 'Variant'
       # Handle it like end of this criteria
-      @esState[:criteria][found[0]] = found[2]['data']['title']
+      @esState[:criteria][found[0]][:variant] = found[2]['data']['title']
       # Refresh criteria list
       callOnCriteria
       # Now fetch next question
@@ -172,6 +196,12 @@ class Model
       end
       callOnQuestion q: found[2]['data']['text'], a: reStruct
     end
+  end
+  def pickQuestionForCriterion(c)
+    raise "Question for #{c} not found" if @esState[:questions][c] == nil
+
+    callOnQuestion @esState[:questions][c]
+    @criterionInWork = c
   end
   # Observer pattern
   def onCriteria(&block)
@@ -218,14 +248,14 @@ Shoes.app config do
         el.remove
       end
       # Fill with criteria
-      criteria.each do |criterion, variant|
+      criteria.each do |criterion, data|
         @criteriaLayer.append do
           s1 = stack width: 430 do 
             para criterion
             flow width: 400, margin_left: 30 do
-              para variant||'не определен'
+              para data[:variant]||'не определен'
               button 'Re-pick' do
-                
+                @model.pickQuestionForCriterion criterion
               end
             end
           end
@@ -283,8 +313,8 @@ Shoes.app config do
           el.remove
         end
         @questionLayer.append do
-          caption "Вопросов больше нет."
-          caption "Результаты можно посмотреть внизу."
+          @elements << (caption "Вопросов больше нет.")
+          @elements << (caption "Результаты можно посмотреть внизу.")
         end
       end
 
