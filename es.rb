@@ -105,15 +105,16 @@ class Model
     found = res['data']
     @esState[:criteria][criterion][:res].clear
     found.each { |result| @esState[:criteria][criterion][:res] << result[0] }
-    info "Res for criterion: #{@esState[:criteria][criterion][:res]}"
     # Form @esState[:results]
     @esState[:results].clear
+    firstInfest = false
     @esState[:criteria].each do |criterion, data|
       res = data[:res]
-      if @esState[:results].empty?
+      if @esState[:results].empty? && !firstInfest
         @esState[:results] = @esState[:results] | res
-      else
-        @esState[:results] = @esState[:results] & res if !res.empty?
+        firstInfest = true
+      elsif not res.empty?
+        @esState[:results] = @esState[:results] & res
       end
     end
     # 
@@ -160,6 +161,7 @@ class Model
     fetchQuestions
   end
   def handleAnswer(q)
+    # Thats in case of solo question
     cypher = "start root=node(0)
               match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
               where question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
@@ -167,6 +169,7 @@ class Model
     res = NeoREST.performCypherQuery(cypher)
     found = res['data'][0]
     if !found
+      # Thats pattern for chained questions
       cypher = "start root=node(0)
                 match (root)-[:coherence]-(criterion)-[:chain]-()-[:answ_as]-()-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
                 where question.type = 'Question' and question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
