@@ -96,6 +96,27 @@ class Model
     end
 
   end
+  def refreshResults
+    @esState[:results].clear
+    firstInfest = false
+    @esState[:criteria].each do |criterion, data|
+      res = data[:res]
+      if res.empty?
+        # Not yet filled/answered
+      else
+        if @esState[:results].empty? && !firstInfest
+          info "Infesting: #{res}"
+          @esState[:results] = @esState[:results] | res
+          firstInfest = true
+        else
+          info "Intersecting: #{res}"
+          @esState[:results] = @esState[:results] & res
+        end
+      end
+    end
+    info "Total result: #{@esState[:results]}"
+    callOnResult
+  end
   def refreshResultsWith(criterion, variant)
     cypher = "start root=node(0)
               match (root)-[:coherence]-(criterion)-[:can_be]-(variant)-[:has_criterion]-(subject)
@@ -103,22 +124,11 @@ class Model
               return subject.title as ST;"
     res = NeoREST.performCypherQuery(cypher)
     found = res['data']
+    info "New results: #{found}"
     @esState[:criteria][criterion][:res].clear
     found.each { |result| @esState[:criteria][criterion][:res] << result[0] }
     # Form @esState[:results]
-    @esState[:results].clear
-    firstInfest = false
-    @esState[:criteria].each do |criterion, data|
-      res = data[:res]
-      if @esState[:results].empty? && !firstInfest
-        @esState[:results] = @esState[:results] | res
-        firstInfest = true
-      elsif not res.empty?
-        @esState[:results] = @esState[:results] & res
-      end
-    end
-    # 
-    callOnResult
+    refreshResults
     # If there is 2 or less results then finish this bullshit!
     callOnFinish if @esState[:results].count <= 2
   end
@@ -206,6 +216,12 @@ class Model
     callOnQuestion @esState[:questions][c]
     @criterionInWork = c
   end
+  def resetCriterion(c)
+    @esState[:criteria][c][:variant] = nil
+    @esState[:criteria][c][:res].clear
+    refreshResults
+    callOnCriteria
+  end
   # Observer pattern
   def onCriteria(&block)
     saviour = Proc.new block
@@ -259,6 +275,9 @@ Shoes.app config do
               para data[:variant]||'не определен'
               button 'Re-pick' do
                 @model.pickQuestionForCriterion criterion
+              end
+              button 'Reset' do
+                @model.resetCriterion criterion
               end
             end
           end
