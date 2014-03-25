@@ -22,15 +22,18 @@
 
 # Test Interval Subject
 
-# addSubject do
-# 	title 'Intervaller'
-# 	criterion 'Test Interval', 93.5
-# end
+addSubject do
+	title 'Intervaller'
+	criterion 'Test Interval', 93.5
+	link 'http://googel.com/'
+end
 
-# addSubject do
-# 	title 'Intervaller#2'
-# 	criterion 'Test Interval', 75.0
-# end
+addSubject do
+	title 'Intervaller#2'
+	criterion 'Test Interval', 75.0
+	link 'http://googel.com/'
+end
+
 
 # Erlang subjects
 addSubject do

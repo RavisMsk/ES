@@ -20,10 +20,12 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-# addQuestion do
-# 	text "Interval testing question?"
-# 	criterion "Test Interval"
-# end
+addQuestion do
+	text "Interval testing question?"
+	criterion "Test Interval"
+	interval
+end
+
 
 # Questions
 

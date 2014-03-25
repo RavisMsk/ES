@@ -94,7 +94,7 @@ end
 def createRel(from, to, type, opts, succLog=nil, failLog=nil)
   req = Net::HTTP::Post.new(from)
   req.content_type = 'application/json'
-  req.body = { :to => to, :type => type }.to_json
+  req.body = { :to => to, :type => type, :data => opts }.to_json
   res = Net::HTTP.start(from.hostname, from.port) do |http|
     http.request(req)
   end
@@ -186,9 +186,10 @@ class Subject
                 where criterion.name = '#{cName}' and variant.title = '#{cVal}' 
                 return id(criterion) as CRIT, id(variant) as VAR;";
     elsif cVal.is_a? Numeric
+      # Validate only criterion, variant is obvious
       cypher = "start root=node(#{rID['data'][0][0]}) 
                 match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
-                where criterion.name = '#{cName}' and variant.title = '#{cVal}' 
+                where criterion.name = '#{cName}' and variant.interval = 'true' 
                 return id(criterion) as CRIT, id(variant) as VAR;";
     end
 
@@ -226,7 +227,8 @@ class Subject
       Setups.log "Creating relationship to variant '#{data[:value]}' of criterion '#{cName}'"
 
       to = nodeURIById(data[:vId])
-      createRel(from, to, 'has_criterion', {}, 'Created rel from subject to variant.')
+      payload = { value: data[:value], interval: 'true' } if data[:value]
+      createRel(from, to, 'has_criterion', payload||{}, 'Created rel from subject to variant.')
 
     end
     
@@ -265,7 +267,10 @@ class Criterion
 
     if @isInterval
       Setups.log "Creating interval variant node..."
-
+      iRes = createNode({ :type => 'Variant', :interval => 'true', :title => 'Interval'})
+      
+      Setups.log "Creating relationship to interval node..."
+      createRel(fromNodeURI, iRes['self'], 'can_be', nil, 'Created rel to interval variant.')
     end
 
     @variants.each do |variant|
@@ -293,6 +298,7 @@ class Question
     @ans = []
     @cat = nil
     @chained = nil
+    @isInterval = false
   end
 
   def text(q = "Пьет ли рыба воду?")
@@ -319,7 +325,14 @@ class Question
     @cat = { :name => cat, :cId => critNodeId, :cName => critNodeName }
   end
 
+  def interval
+    raise "Answers already specified." if not @ans.empty?
+
+    @isInterval = true
+  end
+
   def answer(answ, move)
+    raise "Interval specified already." if @isInterval
     raise "Answer should be specified with chain symbol or criterion variant." if move == nil
 
     @ans << [answ, move]
@@ -336,7 +349,7 @@ class Question
   def save
     raise 'Question must be specified with \'text\'.' if @q == ''
     raise 'Category must be specified by its name with \'criterion\'.' if @cat == nil
-    raise 'At least one answer must be specified with \'answer\'.' if @ans.empty?
+    raise 'At least one answer must be specified with \'answer\'.' if @ans.empty? and !@isInterval
 
     rID = performCypherQuery(Cyphers2::ROOT_ID)
 
@@ -353,7 +366,15 @@ class Question
       createRel(URI(ans), qNode['self'], 'chain', {}, 'Created chain from previous answer to current question.')
     end
 
-    Setups.log 'Processing answers...'
+    if @isInterval
+      cypher = "match ({type:'Root'})-[]-({name:'Test Interval'})-[]-(int {interval:'true'})
+                return int;"
+      iID = performCypherQuery(cypher)
+      Setups.log 'Creating chain to interval node...'
+      createRel(URI(qNode['create_relationship']), iID['data'][0][0]['self'], 'chain', {}, 'Created chain from question to interval node.')
+    end
+
+    Setups.log 'Processing answers...' if not @isInterval
     @ans.each do |answer|
       Setups.log "Creating answer '#{answer}' node..."
       aNode = createNode({ :type => 'Answer', :text => answer[0] }, 'Created answer.')

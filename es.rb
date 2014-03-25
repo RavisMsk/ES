@@ -47,8 +47,8 @@ class Model
     # Should be called only once
     raise 'Fetch questions may be called only once.' if @qFetched
 
-    cypher = "start root=node(#{NeoREST.rootID})
-              match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)
+    # Fetching discrete questions first
+    cypher = "match (root{type:'Root'})-[]-(criterion{type:'Criterion'})-[]-(question{type:'Question'})-[]-(answer{type:'Answer'})
               return criterion.name as C, question.text as Q, answer.text as A;"
     res = NeoREST.performCypherQuery(cypher)
     questions = res['data']
@@ -57,6 +57,14 @@ class Model
         @esState[:questions][question[0]] = { q: question[1], a: []} 
       end
       @esState[:questions][question[0]][:a] << question[2]
+    end
+    # Fetching interval questions now
+    cypher = "match ({type:'Root'})--(cr{type:'Criterion'})--(q{type:'Question'})--({type:'Variant'})
+              return cr.name, q.text;"
+    res = NeoREST.performCypherQuery(cypher)
+    questions = res['data']
+    questions.each do |question|
+      @esState[:questions][question[0]] = { q: question[1], interval: true }
     end
     # Now choose question
     picked = false
@@ -118,17 +126,30 @@ class Model
     callOnResult
   end
   def refreshResultsWith(criterion, variant)
-    cypher = "start root=node(#{NeoREST.rootID})
-              match (root)-[:coherence]-(criterion)-[:can_be]-(variant)-[:has_criterion]-(subject)
-              where criterion.name = '#{criterion}' and variant.title = '#{variant}'
-              return subject as ST;"
-    res = NeoREST.performCypherQuery(cypher)
-    found = res['data']
-    @esState[:criteria][criterion][:res].clear
-    found.each { |result| 
-      resData = { title: result[0]['data']['title'], link:result[0]['data']['link'] }
-      @esState[:criteria][criterion][:res] << resData
-    }
+    if variant.is_a? Array
+      cypher = "match (s{type:'Subject'})-[rel{interval:'true'}]-({type:'Variant',interval:'true',title:'Interval'})--({type:'Criterion',name:'Test Interval'})
+                where rel.value>#{variant[0].to_i} and rel.value<#{variant[1].to_i}
+                return s;"
+      res = NeoREST.performCypherQuery(cypher)
+      found = res['data']
+      @esState[:criteria][criterion][:res].clear
+      found.each { |result| 
+        resData = { title: result[0]['data']['title'], link: result[0]['data']['link'] }
+        @esState[:criteria][criterion][:res] << resData
+      }
+    else
+      cypher = "start root=node(#{NeoREST.rootID})
+                match (root)-[:coherence]-(criterion)-[:can_be]-(variant)-[:has_criterion]-(subject)
+                where criterion.name = '#{criterion}' and variant.title = '#{variant}'
+                return subject as ST;"
+      res = NeoREST.performCypherQuery(cypher)
+      found = res['data']
+      @esState[:criteria][criterion][:res].clear
+      found.each { |result| 
+        resData = { title: result[0]['data']['title'], link:result[0]['data']['link'] }
+        @esState[:criteria][criterion][:res] << resData
+      }
+    end
     # Form @esState[:results]
     refreshResults
     # If there is 2 or less results then finish this bullshit!
@@ -173,43 +194,53 @@ class Model
     fetchQuestions
   end
   def handleAnswer(q)
-    # Thats in case of solo question
-    cypher = "start root=node(#{NeoREST.rootID})
-              match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
-              where question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
-              return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
-    res = NeoREST.performCypherQuery(cypher)
-    found = res['data'][0]
-    if !found
-      # Thats pattern for chained questions
+    if q[:i]==true
+      # Process interval question
+      # Save it
+      @esState[:criteria][@criterionInWork][:variant] = "[#{q[:a][0]}, #{q[:a][1]}]"
+      callOnCriteria
+      pickNextQuestion
+      refreshResultsWith @criterionInWork, q[:a]
+    else
+      # Process normal discrete question
+      # Thats in case of solo question
       cypher = "start root=node(#{NeoREST.rootID})
-                match (root)-[:coherence]-(criterion)-[:chain]-()-[:answ_as]-()-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
-                where question.type = 'Question' and question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
+                match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
+                where question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
                 return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
       res = NeoREST.performCypherQuery(cypher)
       found = res['data'][0]
-    end
-    if found[1] == 'Variant'
-      # Handle it like end of this criteria
-      @esState[:criteria][found[0]][:variant] = found[2]['data']['title']
-      # Refresh criteria list
-      callOnCriteria
-      # Now fetch next question
-      pickNextQuestion
-      # Refresh our results list
-      refreshResultsWith found[0], found[2]['data']['title']
-    else
-      # Move to chained question
-      cypher = "start q=node(#{found[3]})
-                match (q)-[:answ_as]-(answer)
-                return answer.text as AT;"
-      res = NeoREST.performCypherQuery(cypher)
-      nFound = res['data']
-      reStruct = []
-      nFound.each do |nf|
-        reStruct << nf[0]
+      if !found
+        # Thats pattern for chained questions
+        cypher = "start root=node(#{NeoREST.rootID})
+                  match (root)-[:coherence]-(criterion)-[:chain]-()-[:answ_as]-()-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
+                  where question.type = 'Question' and question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
+                  return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
+        res = NeoREST.performCypherQuery(cypher)
+        found = res['data'][0]
       end
-      callOnQuestion q: found[2]['data']['text'], a: reStruct
+      if found[1] == 'Variant'
+        # Handle it like end of this criteria
+        @esState[:criteria][found[0]][:variant] = found[2]['data']['title']
+        # Refresh criteria list
+        callOnCriteria
+        # Now fetch next question
+        pickNextQuestion
+        # Refresh our results list
+        refreshResultsWith found[0], found[2]['data']['title']
+      else
+        # Move to chained question
+        cypher = "start q=node(#{found[3]})
+                  match (q)-[:answ_as]-(answer)
+                  return answer.text as AT;"
+        res = NeoREST.performCypherQuery(cypher)
+        nFound = res['data']
+        reStruct = []
+        nFound.each do |nf|
+          reStruct << nf[0]
+        end
+        callOnQuestion q: found[2]['data']['text'], a: reStruct
+      end
     end
   end
   def pickQuestionForCriterion(c)
@@ -313,20 +344,37 @@ Shoes.app config do
           answers = []
           f = flow do 
             stack width: 250, margin_left: 50 do
-              question[:a].each do |answer|
-                flow do 
-                  rad = radio :qAnsGroup
-                  para answer
-                  answers << [rad, answer]
+              if question[:interval] == true
+                flow do
+                  para 'От: '
+                  @from = edit_line width: 125
+                end
+                flow do
+                  para 'До: '
+                  @to = edit_line width: 125
+                end
+              else
+                question[:a].each do |answer|
+                  flow do 
+                    rad = radio :qAnsGroup
+                    para answer
+                    answers << [rad, answer]
+                  end
                 end
               end
             end
             stack width: 150 do
               button "Далее" do
-                answers.each do |answer|
-                  rad = answer[0]
-                  if rad.checked?
-                    @model.handleAnswer q: question[:q], a: answer[1]
+                if question[:interval] == true
+                  # Read inputs
+                  @model.handleAnswer q: question[:q], a: [@from.text, @to.text], i: true
+                else
+                  # Read radio buttons
+                  answers.each do |answer|
+                    rad = answer[0]
+                    if rad.checked?
+                      @model.handleAnswer q: question[:q], a: answer[1]
+                    end
                   end
                 end
               end
