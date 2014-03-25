@@ -25,8 +25,28 @@ require "json"
 require "singleton"
 
 class NeoREST
+  CLEAR = "match (n)-[r]-()
+          optional match (m)
+          delete n,r,m;"
+  CREATE = "create (n:Person { name : { name }})
+            RETURN n;"
+  ROOT="match (root{type:'Root'})
+        return root;"
+  ROOT_ID = "match (root{type:'Root'})
+            return id(root);"
 	include Singleton
+  attr_accessor :rID
   def initialize
+    @rID = nil
+  end
+  def self.rootID
+    if !self.instance.rID
+      # Lazy load
+      self.instance.rID = self.performCypherQuery(self::ROOT_ID)['data'][0][0]
+      info "Lazy loaded rID = #{self.instance.rID}"
+    end
+
+    self.instance.rID
   end
   def self.performCypherQuery(query="", params={})
     req = Net::HTTP::Post.new('http://localhost:7474/db/data/cypher')

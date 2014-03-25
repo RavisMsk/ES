@@ -47,7 +47,7 @@ class Model
     # Should be called only once
     raise 'Fetch questions may be called only once.' if @qFetched
 
-    cypher = "start root=node(0)
+    cypher = "start root=node(#{NeoREST.rootID})
               match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)
               return criterion.name as C, question.text as Q, answer.text as A;"
     res = NeoREST.performCypherQuery(cypher)
@@ -118,7 +118,7 @@ class Model
     callOnResult
   end
   def refreshResultsWith(criterion, variant)
-    cypher = "start root=node(0)
+    cypher = "start root=node(#{NeoREST.rootID})
               match (root)-[:coherence]-(criterion)-[:can_be]-(variant)-[:has_criterion]-(subject)
               where criterion.name = '#{criterion}' and variant.title = '#{variant}'
               return subject.title as ST;"
@@ -157,7 +157,7 @@ class Model
   def start
     # Work with ES DB
     # Fetch all criteria and create local storage
-    cypher = "start root=node(0) 
+    cypher = "start root=node(#{NeoREST.rootID}) 
               match (root)-[:coherence]-(criterion)
               return criterion.name as CRIT;"
     res = NeoREST.performCypherQuery(cypher)
@@ -172,7 +172,7 @@ class Model
   end
   def handleAnswer(q)
     # Thats in case of solo question
-    cypher = "start root=node(0)
+    cypher = "start root=node(#{NeoREST.rootID})
               match (root)-[:coherence]-(criterion)-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
               where question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
               return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
@@ -180,7 +180,7 @@ class Model
     found = res['data'][0]
     if !found
       # Thats pattern for chained questions
-      cypher = "start root=node(0)
+      cypher = "start root=node(#{NeoREST.rootID})
                 match (root)-[:coherence]-(criterion)-[:chain]-()-[:answ_as]-()-[:chain]-(question)-[:answ_as]-(answer)-[:chain]-(future)
                 where question.type = 'Question' and question.text = '#{q[:q]}' and answer.text = '#{q[:a]}' and criterion.name = '#{@criterionInWork}'
                 return criterion.name as C, future.type as FT, future as F, id(future) as FID limit 1;"
