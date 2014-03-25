@@ -165,10 +165,15 @@ class Subject
   def initialize
     @title = ''
     @criterions = {}
+    @link = nil
   end
 
   def title(name)
     @title = name
+  end
+
+  def link(url)
+    @link = url
   end
 
   def criterion(cName, cVal)
@@ -211,7 +216,9 @@ class Subject
     raise 'Title must be specified.' if @title == ''
 
     Setups.log 'Creating subject node...'
-    res = createNode({ :type => 'Subject', :title => @title }, 'Created subject node.')
+    data = { :type => 'Subject', :title => @title }
+    data[:link] = @link if @link
+    res = createNode(data, 'Created subject node.')
     from = URI(res['create_relationship'])
 
     Setups.log "Working with criterions: #{@criterions.keys}"

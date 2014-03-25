@@ -59,6 +59,7 @@ addSubject do
 	 'Hot Code Upgrade' => 'Поддерживается',
 	 'Необходимость стороннего front-end web-сервера' => 'Необходим всегда',
 	 'Язык программирования' => 'Erlang'
+	link 'https://github.com/5HT/n2o'
 end
 
 addSubject do

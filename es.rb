@@ -121,12 +121,14 @@ class Model
     cypher = "start root=node(#{NeoREST.rootID})
               match (root)-[:coherence]-(criterion)-[:can_be]-(variant)-[:has_criterion]-(subject)
               where criterion.name = '#{criterion}' and variant.title = '#{variant}'
-              return subject.title as ST;"
+              return subject as ST;"
     res = NeoREST.performCypherQuery(cypher)
     found = res['data']
-    info "New results: #{found}"
     @esState[:criteria][criterion][:res].clear
-    found.each { |result| @esState[:criteria][criterion][:res] << result[0] }
+    found.each { |result| 
+      resData = { title: result[0]['data']['title'], link:result[0]['data']['link'] }
+      @esState[:criteria][criterion][:res] << resData
+    }
     # Form @esState[:results]
     refreshResults
     # If there is 2 or less results then finish this bullshit!
@@ -248,6 +250,10 @@ config = {
   resizable: false
 }
 
+Shoes.setup {
+  # gem 'launchy'
+}
+
 Shoes.app config do
 
   @model = Model.new
@@ -356,7 +362,16 @@ Shoes.app config do
         end
         @resultLayer.append do
           results.each do |result|
-            @rElements << (para result)
+            if result[:link]
+              paras = para(
+                link(result[:title]).click do
+                  `open #{result[:link]}`
+                end
+              )
+            else
+              paras = para result[:title]
+            end
+            @rElements << paras
           end
         end
       end
