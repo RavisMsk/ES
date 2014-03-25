@@ -20,9 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-require './es_dsl.rb'
+require '../es_dsl.rb'
 
-# setDebug
+setDebug
 clearDB
 
 require './es_criterions.rb'

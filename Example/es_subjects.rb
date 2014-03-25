@@ -20,6 +20,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# Test Interval Subject
+
+# addSubject do
+# 	title 'Intervaller'
+# 	criterion 'Test Interval', 93.5
+# end
+
+# addSubject do
+# 	title 'Intervaller#2'
+# 	criterion 'Test Interval', 75.0
+# end
+
 # Erlang subjects
 addSubject do
 	title 'Chicago Boss'

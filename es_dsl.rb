@@ -20,10 +20,57 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# Magic comments
+#!/bin/env ruby
+# encoding: utf-8
+
 # Includes
 require 'net/http'
 require 'json'
 require 'singleton'
+
+class Cyphers1
+  CLEAR = "start n = node(*) 
+          match n-[r]-() 
+          where (id(n)>0 and id(n)<10000) 
+          delete n, r;"
+  ROOT="start root=node(0) 
+        return root;"
+  ROOT_ID = "start root=node(0) 
+            return id(root);"
+
+end
+
+class Cyphers2
+  CLEAR = "match (n)-[r]-()
+          optional match (m)
+          delete n,r,m;"
+  CREATE = "create (n:Person { name : { name }})
+            RETURN n;"
+  ROOT="match (root{type:'Root'})
+        return root;"
+  ROOT_ID = "match (root{type:'Root'})
+            return id(root);"
+end
+
+# Check Neo4j version before working
+checkVersion = Proc.new {
+  uri = URI('http://localhost:7474/db/data/')
+  req = Net::HTTP::Get.new(uri)
+  req.content_type = 'application/json'
+  res = Net::HTTP.start(uri.hostname, uri.port) do |http|
+    http.request(req)
+  end
+  case res
+  when Net::HTTPSuccess
+    pRes = JSON.parse(res.body)
+    # Now check 'neo4j_version'
+    raise "Neo4j version should be 2.x. Your is #{pRes['neo4j_version']}." if pRes['neo4j_version']!='2.0.1'
+  else
+    res.value
+  end
+}
+checkVersion.call
 
 # Functions for REST API
 def createNode(opts={}, succLog=nil, failLog=nil)
@@ -92,11 +139,15 @@ end
 # DSL setups
 class Setups
   include Singleton
-  attr_accessor :debug, :localStorage, :chaining
+  attr_accessor :debug, :localStorage, :chaining, :root
   def initialize
     @localStorage = {}
     @debug = false
     @chaining = false
+    @root = nil
+  end
+  def self.root
+    self.instance.root
   end
   def self.log(text)
     puts text if Setups.instance.debug
@@ -121,11 +172,21 @@ class Subject
   end
 
   def criterion(cName, cVal)
+    # Get root id first
+    rID = performCypherQuery(Cyphers2::ROOT_ID)
     # Validate criterion and variant
-    cypher = "start root=node(0) 
-    match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
-    where criterion.name = '#{cName}' and variant.title = '#{cVal}' 
-    return id(criterion) as CRIT, id(variant) as VAR;";
+    if cVal.is_a? String
+      cypher = "start root=node(#{rID['data'][0][0]}) 
+                match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
+                where criterion.name = '#{cName}' and variant.title = '#{cVal}' 
+                return id(criterion) as CRIT, id(variant) as VAR;";
+    elsif cVal.is_a? Numeric
+      cypher = "start root=node(#{rID['data'][0][0]}) 
+                match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
+                where criterion.name = '#{cName}' and variant.title = '#{cVal}' 
+                return id(criterion) as CRIT, id(variant) as VAR;";
+    end
+
     res = performCypherQuery(cypher)
 
     found = res['data']
@@ -171,20 +232,34 @@ class Criterion
   def initialize(cName)
     @name = cName
     @variants = []
+    @isInterval = false
+  end
+
+  def interval
+    raise "Already created some variants." if not @variants.empty?
+
+    @isInterval = true
   end
 
   def variant(var)
+    raise "Already set to interval." if @isInterval
+
     @variants << var
   end
 
   def save
     raise 'Name must be specified.' if @name == ''
-    raise 'At least two variants must be specified.' if @variants.count < 2
+    raise 'At least two variants must be specified.' if !@isInterval and @variants.count < 2
 
     Setups.log 'Creating criterion node...'
     res = createNode({ :type => 'Criterion', :name => @name }, 'Criterion node created.', 'Error creating criterion.')
     critNode = res['self']
     fromNodeURI = URI(res['create_relationship'])
+
+    if @isInterval
+      Setups.log "Creating interval variant node..."
+
+    end
 
     @variants.each do |variant|
       Setups.log "Creating variant \'#{variant}\' node..."
@@ -196,7 +271,7 @@ class Criterion
     end
 
     Setups.log 'Creating relationship for coherence from root to criterion...'
-    root = (performCypherQuery("start root=node(0) return root;"))['data'][0][0]
+    root = (performCypherQuery(Cyphers2::ROOT))['data'][0][0]
     fromRoot = URI(root['create_relationship'])
     createRel(fromRoot, critNode, 'coherence', nil, 'Created rel to criterion.', 'Error rel from root to criterion.')
 
@@ -220,10 +295,11 @@ class Question
   def criterion(cat)
     Setups.log "Validating given criterion '#{cat}'..."
     # Validate criterion
-    cypher = "start root=node(0) 
-    match (root)-[:coherence]-(criterion) 
-    where criterion.name = '#{cat}'
-    return id(criterion) as CRIT, criterion.name as CNAME;";
+    rID = performCypherQuery(Cyphers2::ROOT_ID)
+    cypher = "start root=node(#{rID['data'][0][0]}) 
+              match (root)-[:coherence]-(criterion) 
+              where criterion.name = '#{cat}'
+              return id(criterion) as CRIT, criterion.name as CNAME;";
     res = performCypherQuery(cypher)
 
     found = res['data']
@@ -255,6 +331,8 @@ class Question
     raise 'Category must be specified by its name with \'criterion\'.' if @cat == nil
     raise 'At least one answer must be specified with \'answer\'.' if @ans.empty?
 
+    rID = performCypherQuery(Cyphers2::ROOT_ID)
+
     Setups.log 'Creating question node...'
     qNode = createNode({ :type => 'Question', :text => @q }, 'Question node created.')
 
@@ -276,10 +354,10 @@ class Question
       # Now process answer chaining
       # Analyze answer[1], so if it is a valid variant of some criterion, then chain to it
       # Else chain to next question, specified by answer[1]
-      cypher = "start root=node(0) 
-      match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
-      where variant.title = '#{answer[1]}' and criterion.name = '#{@cat[:cName]}'
-      return id(variant) as VAR;"
+      cypher = "start root=node(#{rID['data'][0][0]}) 
+                match (root)-[:coherence]-(criterion)-[:can_be]-(variant) 
+                where variant.title = '#{answer[1]}' and criterion.name = '#{@cat[:cName]}'
+                return id(variant) as VAR;"
       res = performCypherQuery(cypher)
       if (res['data'].empty?)
         # Variant not found
@@ -306,20 +384,23 @@ def setDebug
 end
 
 def clearDB
-  cypher = "start n = node(*) match n-[r?]-() where (id(n)>0 and id(n)<10000) delete n, r;";
   uri = URI('http://localhost:7474/db/data/cypher')
   req = Net::HTTP::Post.new(uri)
   req.content_type = 'application/json'
-  req.body = { :query => cypher, :params => {} }.to_json
+  req.body = { :query => Cyphers2::CLEAR, :params => {} }.to_json
   res = Net::HTTP.start(uri.hostname, uri.port) do |http|
     http.request(req)
   end
   case res
   when Net::HTTPSuccess
-    'OK'
+    # 'OK'
   else
     res.value
   end
+  # Now create new root node and store it
+  nr = createNode({ :type=>'Root', :title=>'By Nikita Anisimov'}, 'Root node created.')
+  Setups.instance.root = nr
+  'OK'
 end
 
 def addSubject(&block)

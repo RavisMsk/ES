@@ -20,6 +20,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# addCriterion 'Test Interval' do
+# 	interval
+# end
+
 addCriterion 'Testing Framework' do
 	variant 'Встроенный'
 	variant 'Модульный'
